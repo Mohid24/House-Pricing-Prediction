@@ -56,13 +56,38 @@ int main()
         fin >> income_code;
         fin.ignore();
 
-        // location dummies: premium(1) / mid(2)  -> low(3) is baseline
-        matrix(i,17) = (location_code == 1) ? 1 : 0; // premium
-        matrix(i,18) = (location_code == 2) ? 1 : 0; // mid
-
+      // location dummies: premium(1) / mid(2)  -> low(3) is baseline
+         if(location_code == 1)
+        {
+             matrix(i,17) = 1;
+             matrix(i,18) = 0;
+        } 
+        else if(location_code == 2) 
+        {
+             matrix(i,17) = 0;
+             matrix(i,18) = 1;
+        }
+        else
+        {
+             matrix(i,17) = 0;
+             matrix(i,18) = 0;
+        }  
         // income dummies: high(1) / mid(2) -> low(3) is baseline
-        matrix(i,19) = (income_code == 1) ? 1 : 0; // high
-        matrix(i,20) = (income_code == 2) ? 1 : 0; // mid
+          if(income_code == 1) 
+        {
+            matrix(i,19) = 1;
+            matrix(i,20) = 0;   
+        }
+        else if (income_code == 2)
+        {
+            matrix(i,19) = 0;
+            matrix(i,20) = 1;   
+        } 
+        else
+        {
+            matrix(i,19) = 0;
+            matrix(i,20) = 0;   
+        }
 
         fin >> pricevalue(i,0);
       }
