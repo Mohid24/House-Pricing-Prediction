@@ -2,189 +2,361 @@
 #include<Eigen/Dense>
 #include<fstream>
 #include<vector>
+#include<iomanip>
 using namespace std;
 using namespace Eigen;
 
-const int rows = 2000;
- const int cols = 6; 
-//  double original [rows] [cols];
-//  double price [rows] [1]; 
- 
-Matrix <double,rows,1> pricevalue; // Y  
- // double price [rows] [1]; 2000 X 1
- 
- Matrix <double,rows,cols> matrix;  // X 
- //double original [rows] [cols]; 2000 X 6 
- 
- Matrix <double,cols,rows> transpose; // X(t)  
- //double transpose [cols] [rows]; 2000 X 6
- 
- Matrix <double,cols,cols> Multiply1; // X(t) * X 
- //double multiply1 [cols] [cols];  6 X 6
- 
- Matrix <double,cols,cols> mulinv;   // (X(t) * X )(-1) 
- //double inverse [cols] [cols];  6 X 6
- 
- Matrix <double,cols,rows> Multiply2; // ([(X(t) * X )(-1)]* X(t))   
- //double multiply2 [cols] [cols]; 6 X 2000
- 
- Matrix <double,cols,1> bvariable; // b^  
- //double multiply4 [cols] [1];  6 X 1
+const int rows = 50000;
+// 1 (intercept) + 16 numeric features + 2 location dummies + 2 income dummies = 21
+const int cols = 21;
+
+MatrixXd pricevalue(rows,1);
+MatrixXd matrix(rows,cols);
+MatrixXd transpose(cols,rows);
+MatrixXd Multiply1(cols,cols);
+MatrixXd mulinv(cols,cols);
+MatrixXd Multiply2(cols,rows);
+MatrixXd bvariable(cols,1);
+
 int main()
 {
    ifstream fin;
-   
-   // Firstly used 2D Arrays but the inversion of Giant Matrix was difficult so we Use
-   // Eigen Library for Matrix Manipulation
-   
-   fin.open("House Price Dataset(1).csv");
-   
+
+   fin.open("house_price_50k 1.csv");
+
    if(fin)
-    {  
-        // Matrix Population
+    {
+      // ─── Loading Screen ───────────────────────────────────────────
+      cout << "\n";
+      cout << "  ╔══════════════════════════════════════════════════════╗\n";
+      cout << "  ║        HOUSE PRICE PREDICTION SYSTEM  v2.0          ║\n";
+      cout << "  ║           Linear Regression  |  C++                 ║\n";
+      cout << "  ╚══════════════════════════════════════════════════════╝\n\n";
+      cout << "  [ 1/3 ]  Loading dataset  ...  ";
+
+      // Matrix Population
+      // Columns 1..16 are read directly from the dataset (numeric features).
+      // Columns 17..18 in the CSV (location, income_level) are 1/2/3 codes
+      // and are converted into one-hot dummy variables (columns 17..20),
+      // with "low" (code 3) as the baseline category for both.
       for ( int i = 0 ; i < rows ; i ++ )
-     
-      {  
-          matrix (i,0) = 1;
-      }
-   
+        matrix(i,0) = 1;
+
       for ( int i = 0 ; i < rows ; i ++ )
-   
-      {  
-   
-        for ( int j = 1 ; j < cols ; j ++ )
-   
+      {
+        for ( int j = 1 ; j <= 16 ; j ++ )
         {
-        fin >> matrix (i,j);
-        fin.ignore(); 
+          fin >> matrix(i,j);
+          fin.ignore();
         }
-   
-       fin >> pricevalue(i,0);
-    
-    } 
-       fin.close();
-     
-      // Calculation of Slopes and Interception Variables
-     
-      // Y = b0 +  X1 * b1  +  X2 * b2  +  X3 * b3  +  X4 * b4 + X5 * b5 
-    
-      transpose = matrix.transpose(); // Conversion of 2000 X 6 ===> 6 X 2000    
-     
-      Multiply1 = transpose * matrix; // 6 X 2000 * 2000 X 6 ===> 6 X 6
-     
-      mulinv = Multiply1.inverse();  // 6 X 6 still
-     
-      Multiply2 = mulinv * transpose; // 6 X 6 * 6 X 2000 ===> 6 X 2000
-     
-      bvariable = Multiply2 * pricevalue; // 6 X 2000 * 2000 X 1 ===> 6 X 1 
-     
-      // b0 b1 b2 b3 b4 b5 
-        
-     // ======== Mean Squared Error (MSE) Calculation ========
-     // MSE = (1/n) * sum( (actual - predicted)^2 )
-     // We compute predicted price for each row using bvariable,
-     // then compare it with the actual price to measure model accuracy.
 
-      double mse = 0.0; // Accumulator for squared errors
+        int location_code = 0, income_code = 0;
+        fin >> location_code;
+        fin.ignore();
+        fin >> income_code;
+        fin.ignore();
 
+        // location dummies: premium(1) / mid(2)  -> low(3) is baseline
+        matrix(i,17) = (location_code == 1) ? 1 : 0; // premium
+        matrix(i,18) = (location_code == 2) ? 1 : 0; // mid
+
+        // income dummies: high(1) / mid(2) -> low(3) is baseline
+        matrix(i,19) = (income_code == 1) ? 1 : 0; // high
+        matrix(i,20) = (income_code == 2) ? 1 : 0; // mid
+
+        fin >> pricevalue(i,0);
+      }
+      fin.close();
+      cout << "Done  (" << rows << " records)\n";
+
+      // ─── Training ─────────────────────────────────────────────────
+      cout << "  [ 2/3 ]  Training model   ...  ";
+
+      transpose = matrix.transpose();
+      Multiply1 = transpose * matrix;
+      mulinv    = Multiply1.inverse();
+      Multiply2 = mulinv * transpose;
+      bvariable = Multiply2 * pricevalue;
+
+      cout << "Done\n";
+
+      // ─── MSE Calculation ──────────────────────────────────────────
+      cout << "  [ 3/3 ]  Evaluating model ...  ";
+
+      double mse = 0.0;
       for ( int i = 0 ; i < rows ; i++ )
       {
-          // Compute predicted price for row i using the regression coefficients
-          double predicted = bvariable(0,0)                          // b0 (intercept)
-                           + matrix(i,1) * bvariable(1,0)        // b1 * Area
-                           + matrix(i,2) * bvariable(2,0)        // b2 * Bedrooms
-                           + matrix(i,3) * bvariable(3,0)        // b3 * Floors
-                           + matrix(i,4) * bvariable(4,0)        // b4 * Location
-                           + matrix(i,5) * bvariable(5,0);       // b5 * Condition
+          double predicted = (matrix.row(i) * bvariable)(0,0);
+          double error = pricevalue(i,0) - predicted;
+          mse += error * error;
+      }
+      mse = mse / rows;
+      cout << "Done\n";
 
-          double error = pricevalue(i,0) - predicted; // Actual minus Predicted
-          mse += error * error;                   // Accumulate squared error
+      // ─── Model Summary ────────────────────────────────────────────
+      cout << "\n";
+      cout << "  ┌────────────────────────────────────────────────────┐\n";
+      cout << "  │                  Model  Ready                       │\n";
+      cout << "  │                                                      │\n";
+      cout << fixed << setprecision(2);
+      cout << "  │   Mean Squared Error (MSE) :  " << setw(18) << mse << "   │\n";
+      cout << "  └────────────────────────────────────────────────────┘\n";
+
+      // ─── User Input ───────────────────────────────────────────────
+      double area = 0.0, crimerate = 0.0, population_density = 0.0;
+      int bedrooms = 0, bathroom = 0, age = 0, distance = 0, garage = 0;
+      int parking = 0, floors = 0, location = 0, income_level = 0;
+      int garden = 0, security = 0, school_nearby = 0;
+      int hospital_nearby = 0, shopping_mall_nearby = 0, transport = 0;
+
+      cout << "\n";
+      cout << "  ╔══════════════════════════════════════════════════════╗\n";
+      cout << "  ║              Enter  Property  Details               ║\n";
+      cout << "  ╚══════════════════════════════════════════════════════╝\n\n";
+
+      // Area
+      cout << "  Area of the House  [ 500 - 9999  sq ft ]  :  ";
+      cin >> area;
+      while (area < 500 || area > 9999)
+      {
+        cout << "  X  Invalid! Please enter a value between 500 and 9999  :  ";
+        cin >> area;
       }
 
-      mse = mse / rows; // Divide by number of rows to get the mean
-      // ======================================================
-        
-      // Data Input for Parameters
-      double area = 0.0 ;
-      int  bedrooms = 0 , floors = 0 , location = 0 , condition = 0; 
-      
-      cout << "======== < Welcome to our C++ Based House Prediction System > ========" << endl;
-      
-      cout << "Mean Squared Error (MSE) of the Model : " << mse << endl;
-      
-      cout << "Please enter the Area of the House in Square Feet ( 500 - 9999 ) : ";
-      cin >> area;
-      
-      while (area < 500 || area > 9999 )
-      
-      {
-      cout << "Please Enter the valid range area in ( 500 - 9999 ) : ";
-      cin >> area;
-      }
-      
-      cout << "Please Input the Bedrooms in the House ( 1 - 5 ) : ";
+      // Bedrooms
+      cout << "\n  Number of Bedrooms  [ 1 - 10 ]  :  ";
       cin >> bedrooms;
-      
-      while (bedrooms < 1 || bedrooms > 5 )
-      
+      while (bedrooms < 1 || bedrooms > 10)
       {
-      cout << "Please Enter the valid range of bedrooms in ( 1 - 5 ) : ";
-      cin >> bedrooms;
+        cout << "  X  Invalid! Please enter a value between 1 and 10  :  ";
+        cin >> bedrooms;
       }
-      
-      cout << "Please Input the Floors in the House ( 1 - 3 ) : ";
+
+      // Bathroom
+      cout << "\n  Number of Bathrooms  [ 1 - 10 ]  :  ";
+      cin >> bathroom;
+      while (bathroom < 1 || bathroom > 10)
+      {
+        cout << "  X  Invalid! Please enter a value between 1 and 10  :  ";
+        cin >> bathroom;
+      }
+
+      // Floors
+      cout << "\n  Number of Floors  [ 1 - 3 ]  :  ";
       cin >> floors;
-      
-      while (floors < 1 || floors > 3 )
-      
+      while (floors < 1 || floors > 3)
       {
-      cout << "Please Enter the valid range of Floors in ( 1 - 3 ) : ";
-      cin >> floors;
+        cout << "  X  Invalid! Please enter a value between 1 and 3  :  ";
+        cin >> floors;
       }
-      
-      cout << "Please Input the Location of the House accordind to following Choices : " << endl;
-      cout << "Downtown ==> 1" << endl;
-      cout << "Urban ==> 2" << endl;
-      cout << "Suburban ==> 3" << endl;
-      cout << "Rural ==> 4" << endl;
-      cout << "Enter the Choice in b/w (1 - 4) : ";
+
+      // Age
+      cout << "\n  Age of the house  [ 1 - 50 ]  :  ";
+      cin >> age;
+      while (age < 1 || age > 50)
+      {
+        cout << "  X  Invalid! Please enter a value between 1 and 20  :  ";
+        cin >> age;
+      }
+
+      // Distance
+      cout << "\n  Distance  [ 1 - 50 ]  :  ";
+      cin >> distance;
+      while (distance < 1 || distance > 50)
+      {
+        cout << "  X  Invalid! Please enter a value between 1 and 50  :  ";
+        cin >> distance;
+      }
+
+      // Garage
+      cout << "\n  Have a garage? Yes/No [ 1/0 ]  :  ";
+      cin >> garage;
+      while (garage < 0 || garage > 1)
+      {
+        cout << "  X  Invalid! Please enter 1 or 0  :  ";
+        cin >> garage;
+      }
+
+      // Parking
+      cout << "\n  Have parking? Yes/No [ 1/0 ]  :  ";
+      cin >> parking;
+      while (parking < 0 || parking > 1)
+      {
+        cout << "  X  Invalid! Please enter 1 or 0  :  ";
+        cin >> parking;
+      }
+
+      // Garden
+      cout << "\n  Have a garden? Yes/No [ 1/0 ]  :  ";
+      cin >> garden;
+      while (garden < 0 || garden > 1)
+      {
+        cout << "  X  Invalid! Please enter 1 or 0  :  ";
+        cin >> garden;
+      }
+
+      // Security
+      cout << "\n  Tight security? Yes/No [ 1/0 ]  :  ";
+      cin >> security;
+      while (security < 0 || security > 1)
+      {
+        cout << "  X  Invalid! Please enter 1 or 0  :  ";
+        cin >> security;
+      }
+
+      // School nearby
+      cout << "\n  School nearby? Yes/No [ 1/0 ]  :  ";
+      cin >> school_nearby;
+      while (school_nearby < 0 || school_nearby > 1)
+      {
+        cout << "  X  Invalid! Please enter 1 or 0  :  ";
+        cin >> school_nearby;
+      }
+
+      // Hospital nearby
+      cout << "\n  Hospital nearby? Yes/No [ 1/0 ]  :  ";
+      cin >> hospital_nearby;
+      while (hospital_nearby < 0 || hospital_nearby > 1)
+      {
+        cout << "  X  Invalid! Please enter 1 or 0  :  ";
+        cin >> hospital_nearby;
+      }
+
+      // Shopping mall nearby
+      cout << "\n  Shopping mall nearby? Yes/No [ 1/0 ]  :  ";
+      cin >> shopping_mall_nearby;
+      while (shopping_mall_nearby < 0 || shopping_mall_nearby > 1)
+      {
+        cout << "  X  Invalid! Please enter 1 or 0  :  ";
+        cin >> shopping_mall_nearby;
+      }
+
+      // Public transport
+      cout << "\n  Public transport nearby? Yes/No [ 1/0 ]  :  ";
+      cin >> transport;
+      while (transport < 0 || transport > 1)
+      {
+        cout << "  X  Invalid! Please enter 1 or 0  :  ";
+        cin >> transport;
+      }
+
+      // Crime rate
+      cout << "\n  Crime Rate  [ 0 - 10 ]  :  ";
+      cin >> crimerate;
+      while (crimerate < 0 || crimerate > 10)
+      {
+        cout << "  X  Invalid! Please enter a value between 0 and 10  :  ";
+        cin >> crimerate;
+      }
+
+      // Population density
+      cout << "\n  Population density  [ 500 - 9999 ]  :  ";
+      cin >> population_density;
+      while (population_density < 500 || population_density > 9999)
+      {
+        cout << "  X  Invalid! Please enter a value between 500 and 9999  :  ";
+        cin >> population_density;
+      }
+
+      // Location
+      cout << "\n  Location of the House :\n";
+      cout << "    1  ->  Premium\n";
+      cout << "    2  ->  Mid\n";
+      cout << "    3  ->  Low\n";
+      cout << "\n  Your Choice  [ 1 - 3 ]  :  ";
       cin >> location;
-      
-      while (location < 1 || location > 4 )
-      
+      while (location < 1 || location > 3)
       {
-      cout << "Please Enter the valid range of Choices in ( 1 - 4 ) : ";
-      cin >> location;
+        cout << "  X  Invalid! Please enter a value between 1 and 3  :  ";
+        cin >> location;
       }
-      
-      cout << "Please Input the Condition of the House accordind to following Choices : " << endl;
-      cout << "Excellent ==> 1" << endl;
-      cout << "Good ==> 2" << endl;
-      cout << "Fair ==> 3" << endl;
-      cout << "Poor ==> 4" << endl;
-      cout << "Enter the Choice in b/w (1 - 4) : ";
-      cin >> condition;
-      
-      while (condition < 1 || condition > 4 )
+
+      // Income level
+      cout << "\n  Income level of the area :\n";
+      cout << "    1  ->  High\n";
+      cout << "    2  ->  Mid\n";
+      cout << "    3  ->  Low\n";
+      cout << "\n  Your Choice  [ 1 - 3 ]  :  ";
+      cin >> income_level;
+      while (income_level < 1 || income_level > 3)
       {
-      cout << "Please Enter the valid range of Condition in ( 1 - 4 ) : ";
-      cin >> condition;
+        cout << "  X  Invalid! Please enter a value between 1 and 3  :  ";
+        cin >> income_level;
       }
-      
-      double result = 0.0;
-      
-      result = bvariable(0,0) + (area * bvariable(1,0)) + ( bedrooms * bvariable(2,0)) + ( floors * bvariable(3,0)) + (location * bvariable(4,0)) + ( condition * bvariable(5,0) ) ; 
-      
-      cout << "Your Predicted Price Value is : " << result << endl;
-      
-      return 0 ;
-    } 
-    else 
-    
+
+      // Convert location/income choices to the same dummy encoding used in training
+      int loc_premium = 0;
+      int loc_mid     = 0;
+      int inc_high    = 0;
+      int inc_mid     = 0;
+     if ( location == 1 )
+     {
+          loc_premium = 1;
+          loc_mid     = 0;
+     }
+     else if ( location == 2 ) 
+     {
+          loc_premium = 0;
+          loc_mid     = 1;
+     }
+     else
+     {
+          loc_premium = 0;
+          loc_mid     = 0;
+     }
+     if ( income_level == 1 )
+     {
+          inc_high = 1;
+          inc_mid  = 0;
+     }
+     else if ( income_level == 2 ) 
+     {
+          inc_high = 0;
+          inc_mid  = 1;
+     }
+     else
+     {
+          inc_high = 0;
+          inc_mid  = 0;
+     }
+      // ─── Result ───────────────────────────────────────────────────
+      double result = bvariable(0,0)
+                    + (area                  * bvariable(1,0))
+                    + (bedrooms              * bvariable(2,0))
+                    + (bathroom              * bvariable(3,0))
+                    + (floors                * bvariable(4,0))
+                    + (age                   * bvariable(5,0))
+                    + (distance              * bvariable(6,0))
+                    + (garage                * bvariable(7,0))
+                    + (parking               * bvariable(8,0))
+                    + (garden                * bvariable(9,0))
+                    + (security              * bvariable(10,0))
+                    + (school_nearby         * bvariable(11,0))
+                    + (hospital_nearby       * bvariable(12,0))
+                    + (shopping_mall_nearby  * bvariable(13,0))
+                    + (transport             * bvariable(14,0))
+                    + (crimerate             * bvariable(15,0))
+                    + (population_density    * bvariable(16,0))
+                    + (loc_premium           * bvariable(17,0))
+                    + (loc_mid               * bvariable(18,0))
+                    + (inc_high              * bvariable(19,0))
+                    + (inc_mid               * bvariable(20,0));
+
+      cout << "\n";
+      cout << "  ╔══════════════════════════════════════════════════════╗\n";
+      cout << "  ║              Prediction  Result                     ║\n";
+      cout << "  ║                                                      ║\n";
+      cout << "  ║   Estimated House Price  :  $"
+           << setw(18) << fixed << setprecision(2) << result << "       ║\n";
+      cout << "  ║                                                      ║\n";
+      cout << "  ╚══════════════════════════════════════════════════════╝\n\n";
+
+      return 0;
+    }
+    else
     {
-    
-        cout << "Somehow the file is not openning due to me error." << endl;
-        return 0;
-    
+      cout << "\n  [ERROR]  Could not open the dataset file.\n";
+      cout << "  Make sure  \"house_price_50k_1.csv\"  is in the same folder.\n\n";
+      return 1;
     }
 }
